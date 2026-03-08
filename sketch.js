@@ -15,12 +15,15 @@ let fourierPad = {
 // ── Window state ──────────────────────────────────────────────────────────────
 let infoWin = { open: false, panel: 0, x: 60, y: 60, drag: false, ox: 0, oy: 0 };
 let ctrlWin = { open: false, panel: 0, x: 120, y: 80, drag: false, ox: 0, oy: 0, knob: null };
+let vizWin  = { open: false, panel: 0, x: 180, y: 120, drag: false, ox: 0, oy: 0 };
 let topCard = 'ctrl'; // which card renders last (on top)
 
 // Layout constants
 const IW = 490;                         // info card width
 const IH = 360;                         // info card height
 const CW = 372;                         // ctrl card width
+const VW = 430;                         // visualizer card width
+const VH = 360;                         // visualizer card height
 const HDR = 38;                         // header height
 const KR = 15;                          // knob radius
 const KCOLS = 4;                        // knobs per row
@@ -44,6 +47,8 @@ function setup() {
   infoWin.y = height / 2 - IH / 2;
   ctrlWin.x = width / 2 - CW / 2;
   ctrlWin.y = 60;
+  vizWin.x  = width / 2 - VW / 2 + 40;
+  vizWin.y  = height / 2 - VH / 2 + 20;
 }
 
 function draw() {
@@ -57,10 +62,14 @@ function draw() {
   }
 
   // Draw cards in z-order (top card last)
-  let order = topCard === 'info' ? ['ctrl', 'info'] : ['info', 'ctrl'];
+  let order = ['info', 'ctrl', 'viz'];
+  if (topCard === 'info') order = ['ctrl', 'viz', 'info'];
+  if (topCard === 'ctrl') order = ['info', 'viz', 'ctrl'];
+  if (topCard === 'viz')  order = ['info', 'ctrl', 'viz'];
   for (let w of order) {
     if (w === 'info' && infoWin.open) drawInfoCard();
     if (w === 'ctrl' && ctrlWin.open) drawCtrlCard();
+    if (w === 'viz'  && vizWin.open)  drawVizCard(t);
   }
 
   // Cursor
@@ -68,12 +77,13 @@ function draw() {
   for (let i = 0; i < PANELS.length; i++) {
     let px = (i % PANEL_COLS) * pw, py = floor(i / PANEL_COLS) * ph;
     if (dist(mouseX, mouseY, px + pw - 22, py + 16) < 12 ||
-        dist(mouseX, mouseY, px + pw - 44, py + 16) < 12) { hot = true; break; }
+        dist(mouseX, mouseY, px + pw - 44, py + 16) < 12 ||
+        dist(mouseX, mouseY, px + pw - 66, py + 16) < 12) { hot = true; break; }
   }
   if (!hot && ctrlWin.open) {
     for (let k of getKnobs()) { if (dist(mouseX, mouseY, k.x, k.y) < KR + 6) { hot = true; break; } }
   }
-  cursor((hot || ctrlWin.knob || infoWin.drag || ctrlWin.drag) ? HAND : ARROW);
+  cursor((hot || ctrlWin.knob || infoWin.drag || ctrlWin.drag || vizWin.drag) ? HAND : ARROW);
 }
 
 // ── Panel renderer ─────────────────────────────────────────────────────────────
@@ -102,6 +112,10 @@ function drawPanel(p, idx, px, py, pw, ph, t) {
   // "⚙" ctrl button
   panelBtn(pw / 2 - 44, -ph / 2 + 16, '\u2699', p.h,
            dist(mouseX, mouseY, px + pw - 44, py + 16) < 12);
+
+  // "V" visualizer button
+  panelBtn(pw / 2 - 66, -ph / 2 + 16, 'V', p.h,
+           dist(mouseX, mouseY, px + pw - 66, py + 16) < 12);
 
   pop();
   drawingContext.restore();
@@ -167,6 +181,46 @@ function drawCtrlCard() {
   for (let k of getKnobs()) drawKnob(k.x, k.y, k.pm, p.h);
 }
 
+function drawVizCard(t) {
+  let { x, y, panel } = vizWin;
+  let p = PANELS[panel];
+  let snap = buildVizSnapshot(panel, t);
+
+  fill(0, 0, 7); stroke(p.h, 55, 100); strokeWeight(1);
+  rect(x, y, VW, VH, 6);
+
+  noStroke(); fill(p.h, 70, 90, 35);
+  rect(x, y, VW, HDR, 6, 6, 0, 0);
+
+  fill(p.h, 55, 100); textSize(14); textAlign(LEFT, CENTER);
+  text(`${p.title} · Visualizer`, x + 16, y + HDR / 2);
+  closeBtn(x + VW - 22, y + HDR / 2);
+
+  noStroke(); fill(0, 0, 85); textSize(10); textAlign(LEFT, TOP);
+  text('Live variable values + function probes', x + 14, y + HDR + 8);
+
+  let rowY = y + HDR + 30;
+  fill(p.h, 45, 100); textSize(11);
+  text('Variables', x + 14, rowY);
+  rowY += 16;
+
+  for (let i = 0; i < snap.vars.length; i++) {
+    let v = snap.vars[i];
+    drawVizBar(x + 14, rowY + i * 22, VW - 28, v, p.h);
+  }
+
+  let fnY = rowY + snap.vars.length * 22 + 14;
+  fill(p.h, 45, 100); textSize(11);
+  text('Function outputs', x + 14, fnY);
+  fnY += 14;
+
+  fill(0, 0, 82); textSize(10); textAlign(LEFT, TOP);
+  let lines = snap.funcs.slice(0, 8);
+  for (let i = 0; i < lines.length; i++) {
+    text(`${lines[i].name}: ${lines[i].value}`, x + 14, fnY + i * 14);
+  }
+}
+
 function closeBtn(cx, cy) {
   let hot = dist(mouseX, mouseY, cx, cy) < 12;
   fill(0, 0, hot ? 35 : 10, 85); stroke(0, 0, 70); strokeWeight(0.5);
@@ -213,6 +267,179 @@ function getKnobs() {
 function ctrlCardH(idx) {
   let rows = ceil(Object.keys(PANELS[idx].params).length / KCOLS);
   return KY + rows * KCH + 16;
+}
+
+function drawVizBar(x, y, w, v, hue) {
+  let pct = (v.max > v.min) ? constrain((v.value - v.min) / (v.max - v.min), 0, 1) : 0;
+  fill(0, 0, 14); noStroke();
+  rect(x, y, w, 14, 3);
+  fill(hue, 60, 90, 65);
+  rect(x, y, w * pct, 14, 3);
+
+  fill(0, 0, 90); textSize(9); textAlign(LEFT, CENTER);
+  text(`${v.label}: ${fmtNum(v.value)}`, x + 6, y + 7);
+}
+
+function fmtNum(v) {
+  if (typeof v !== 'number' || Number.isNaN(v)) return String(v);
+  if (abs(v) >= 1000) return nf(v, 1, 0);
+  if (abs(v) >= 100) return nf(v, 1, 1);
+  if (abs(v) >= 10) return nf(v, 1, 2);
+  return nf(v, 1, 3);
+}
+
+function buildVizSnapshot(panelIdx, t) {
+  let p = PANELS[panelIdx];
+  let pm = p.params;
+  let vars = [{ label: 'time t', value: t, min: 0, max: TWO_PI }];
+  for (let key of Object.keys(pm)) {
+    vars.push({ label: pm[key].label, value: pm[key].value, min: pm[key].min, max: pm[key].max });
+  }
+
+  let funcs = [];
+  switch (p.title) {
+    case 'SIN · COS': {
+      let theta = t * 2.0;
+      funcs.push({ name: 'sin(A*theta+t)', value: fmtNum(sin(pm.freqA.value * theta + t)) });
+      funcs.push({ name: 'cos(B*theta+C*t)', value: fmtNum(cos(pm.freqB.value * theta + t * pm.phaseC.value)) });
+      funcs.push({ name: 'phase delta', value: fmtNum(pm.phaseC.value * t) });
+      break;
+    }
+    case 'NOISE': {
+      let p0 = pts[0] || { x: 0, y: 0 };
+      let n = noise(p0.x * pm.scale.value, p0.y * pm.scale.value, t * pm.tScale.value);
+      funcs.push({ name: 'noise(x*S,y*S,t*T)', value: fmtNum(n) });
+      funcs.push({ name: 'angle = noise*TAU*A', value: fmtNum(n * TWO_PI * pm.angleA.value) });
+      funcs.push({ name: 'step speed', value: fmtNum(pm.speed.value) });
+      break;
+    }
+    case 'ATAN2': {
+      let a = atan2(0.3, -0.2) + t;
+      funcs.push({ name: 'atan2(y,x)', value: fmtNum(atan2(0.3, -0.2)) });
+      funcs.push({ name: 'angle + t', value: fmtNum(a) });
+      funcs.push({ name: 'line dx', value: fmtNum(cos(a) * pm.lineLen.value) });
+      funcs.push({ name: 'line dy', value: fmtNum(sin(a) * pm.lineLen.value) });
+      break;
+    }
+    case 'MOD': {
+      let i = floor(pm.count.value * 0.33);
+      let r = 100;
+      let rad = (i * pm.spacing.value + t * pm.speed.value) % r;
+      funcs.push({ name: '(i*S + t*T) % r', value: fmtNum(rad) });
+      funcs.push({ name: 'cos(i*0.18)', value: fmtNum(cos(i * 0.18)) });
+      funcs.push({ name: 'sin(i*0.18)', value: fmtNum(sin(i * 0.18)) });
+      break;
+    }
+    case 'TAN': {
+      let k = pm.kBase.value + sin(t * 0.2) * pm.kAnim.value;
+      let theta = PI / 4;
+      funcs.push({ name: 'k(t)', value: fmtNum(k) });
+      funcs.push({ name: 'tan(theta*k)', value: fmtNum(tan(theta * k)) });
+      funcs.push({ name: '|tan|*scale', value: fmtNum(abs(tan(theta * k)) * pm.scale.value) });
+      break;
+    }
+    case 'LERP': {
+      funcs.push({ name: 'leader x', value: fmtNum(sin(t * pm.freqX.value)) });
+      funcs.push({ name: 'leader y', value: fmtNum(sin(t * pm.freqY.value)) });
+      funcs.push({ name: 'lerp alpha', value: fmtNum(pm.alpha.value) });
+      funcs.push({ name: 'tail distance', value: fmtNum(dist(chain[0].x, chain[0].y, chain[5].x, chain[5].y)) });
+      break;
+    }
+    case 'POW': {
+      let n = max(0.15, pm.nBase.value + sin(t * pm.speed.value) * pm.nAnim.value);
+      funcs.push({ name: 'n(t)', value: fmtNum(n) });
+      funcs.push({ name: 'pow(|cos|,2/n)', value: fmtNum(pow(abs(cos(t)), 2 / n)) });
+      funcs.push({ name: 'pow(|sin|,2/n)', value: fmtNum(pow(abs(sin(t)), 2 / n)) });
+      break;
+    }
+    case 'SQRT': {
+      let N = floor(pm.rings.value);
+      let i = max(1, floor(N * 0.5));
+      funcs.push({ name: 'sqrt(i/N)', value: fmtNum(sqrt(i / N)) });
+      funcs.push({ name: 'wobble term', value: fmtNum(sin(i * pm.wFreq.value - t * pm.speed.value) * pm.wobble.value) });
+      break;
+    }
+    case 'ABS': {
+      let x = 30;
+      let wave = sin(x * pm.freq.value + t + PI / 3);
+      funcs.push({ name: 'sin(x*f+t+phi)', value: fmtNum(wave) });
+      funcs.push({ name: 'abs(sin)', value: fmtNum(abs(wave)) });
+      funcs.push({ name: 'amp * abs(sin)', value: fmtNum(pm.amp.value * abs(wave)) });
+      break;
+    }
+    case 'FRACT': {
+      let C = floor(pm.cells.value);
+      let fx = fract((1 + t * pm.scrollX.value) / C) - 0.5;
+      let fy = fract((2 + t * pm.scrollY.value) / C) - 0.5;
+      funcs.push({ name: 'fract(x)', value: fmtNum(fx) });
+      funcs.push({ name: 'fract(y)', value: fmtNum(fy) });
+      funcs.push({ name: 'radial ripple', value: fmtNum(sin(sqrt(fx * fx + fy * fy) * TWO_PI * pm.ripple.value)) });
+      break;
+    }
+    case 'EXP': {
+      let theta = PI * 0.75;
+      funcs.push({ name: 'exp(b*theta)', value: fmtNum(exp(pm.b.value * theta)) });
+      funcs.push({ name: 'radius', value: fmtNum(exp(pm.b.value * theta) * pm.scale.value) });
+      break;
+    }
+    case 'LOG': {
+      let N = floor(pm.N.value);
+      let i = floor(N * 0.5);
+      funcs.push({ name: 'log(i+1)', value: fmtNum(log(i + 1)) });
+      funcs.push({ name: 'log(N+1)', value: fmtNum(log(N + 1)) });
+      funcs.push({ name: 'normalized radius', value: fmtNum(log(i + 1) / log(N + 1)) });
+      break;
+    }
+    case 'TANH': {
+      let x = 35;
+      let raw = sin(x * pm.freq.value + t);
+      let gain = pm.gainBase.value + sin(t * pm.speed.value) * pm.gainAnim.value;
+      funcs.push({ name: 'sin(x*f+t)', value: fmtNum(raw) });
+      funcs.push({ name: 'gain(t)', value: fmtNum(gain) });
+      funcs.push({ name: 'tanh(raw*gain)', value: fmtNum(Math.tanh(raw * gain)) });
+      break;
+    }
+    case 'HYPOT': {
+      let x = 22, y = -35;
+      let d = sqrt(x * x + y * y);
+      let v = (sin(d * pm.freq.value - t * pm.speed.value) + 1) * 0.5;
+      funcs.push({ name: 'sqrt(x^2+y^2)', value: fmtNum(d) });
+      funcs.push({ name: 'sin(dist*f - t*s)', value: fmtNum(sin(d * pm.freq.value - t * pm.speed.value)) });
+      funcs.push({ name: 'wave value v', value: fmtNum(v) });
+      break;
+    }
+    case 'FLOOR': {
+      let steps = max(1, round(pm.stepsBase.value + sin(t * pm.speed.value) * pm.stepsAnim.value));
+      let raw = sin(30 * pm.freq.value + t);
+      funcs.push({ name: 'steps(t)', value: fmtNum(steps) });
+      funcs.push({ name: 'raw sin', value: fmtNum(raw) });
+      funcs.push({ name: 'floor(raw*steps)/steps', value: fmtNum(floor(raw * steps) / steps) });
+      break;
+    }
+    case 'CBRT': {
+      let u = sin(t);
+      let v = cos(t * pm.freqY.value + t * pm.speedY.value);
+      funcs.push({ name: 'sin(theta+t)', value: fmtNum(u) });
+      funcs.push({ name: 'cos(f*theta+s*t)', value: fmtNum(v) });
+      funcs.push({ name: 'cbrt(sin)', value: fmtNum(Math.cbrt(u)) });
+      funcs.push({ name: 'cbrt(cos)', value: fmtNum(Math.cbrt(v)) });
+      break;
+    }
+    case 'FOURIER DRAW': {
+      let top = fourierPad.coeffs[0];
+      funcs.push({ name: 'stroke points', value: fmtNum(fourierPad.points.length) });
+      funcs.push({ name: 'DFT samples', value: fmtNum(fourierPad.samples.length) });
+      funcs.push({ name: 'active coeffs', value: fmtNum(min(floor(pm.terms.value), fourierPad.coeffs.length)) });
+      funcs.push({ name: 'top freq', value: top ? fmtNum(top.freq) : '-' });
+      funcs.push({ name: 'top amplitude', value: top ? fmtNum(top.amp * pm.gain.value) : '-' });
+      break;
+    }
+    default: {
+      funcs.push({ name: 'status', value: 'No probes' });
+    }
+  }
+
+  return { vars: vars.slice(0, 10), funcs };
 }
 
 function addFourierPoint(mx, my, px, py, pw, ph) {
@@ -267,15 +494,16 @@ function dftComplex(samples) {
   return X;
 }
 
-function drawEpicycles(x, y, rotation, coeffs, termCount, time, hue) {
+function drawEpicycles(x, y, rotation, coeffs, termCount, time, hue, ampGain) {
   for (let i = 0; i < min(termCount, coeffs.length); i++) {
     let c = coeffs[i];
+    let amp = c.amp * ampGain;
     let prevx = x, prevy = y;
     let ang = c.freq * time + c.phase + rotation;
-    x += c.amp * cos(ang);
-    y += c.amp * sin(ang);
+    x += amp * cos(ang);
+    y += amp * sin(ang);
     stroke(hue, 20, 90, 30);
-    circle(prevx, prevy, c.amp * 2);
+    circle(prevx, prevy, amp * 2);
     stroke(hue, 70, 100, 55);
     line(prevx, prevy, x, y);
   }
@@ -285,11 +513,12 @@ function drawEpicycles(x, y, rotation, coeffs, termCount, time, hue) {
 // ── Mouse events ───────────────────────────────────────────────────────────────
 function mousePressed() {
   let pw = width / PANEL_COLS, ph = height / ceil(PANELS.length / PANEL_COLS);
-  let cards = topCard === 'ctrl'
-    ? [['ctrl', ctrlWin, CW, ctrlCardH(ctrlWin.panel)],
-       ['info', infoWin, IW, IH]]
-    : [['info', infoWin, IW, IH],
-       ['ctrl', ctrlWin, CW, ctrlCardH(ctrlWin.panel)]];
+  let cards = [
+    ['info', infoWin, IW, IH],
+    ['ctrl', ctrlWin, CW, ctrlCardH(ctrlWin.panel)],
+    ['viz', vizWin, VW, VH],
+  ];
+  cards.sort((a, b) => (a[0] === topCard ? 1 : 0) - (b[0] === topCard ? 1 : 0));
 
   for (let [name, win, w, h] of cards) {
     if (!win.open) continue;
@@ -338,6 +567,12 @@ function mousePressed() {
       ctrlWin.y = constrain(py + ph / 2 - ch / 2,  0, height - ch);
       return;
     }
+    if (dist(mouseX, mouseY, px + pw - 66, py + 16) < 12) {
+      vizWin.panel = i; vizWin.open = true; topCard = 'viz';
+      vizWin.x = constrain(px + pw / 2 - VW / 2, 0, width  - VW);
+      vizWin.y = constrain(py + ph / 2 - VH / 2, 0, height - VH);
+      return;
+    }
   }
 
   let drawPanelIdx = PANELS.length - 1;
@@ -345,7 +580,8 @@ function mousePressed() {
   let drawPy = floor(drawPanelIdx / PANEL_COLS) * ph;
   let inDrawPanel = mouseX > drawPx && mouseX < drawPx + pw && mouseY > drawPy && mouseY < drawPy + ph;
   let onButtons = dist(mouseX, mouseY, drawPx + pw - 22, drawPy + 16) < 12 ||
-                  dist(mouseX, mouseY, drawPx + pw - 44, drawPy + 16) < 12;
+                  dist(mouseX, mouseY, drawPx + pw - 44, drawPy + 16) < 12 ||
+                  dist(mouseX, mouseY, drawPx + pw - 66, drawPy + 16) < 12;
 
   if (inDrawPanel && !onButtons) {
     fourierPad.drawing = true;
@@ -368,6 +604,10 @@ function mouseDragged() {
     ctrlWin.x = constrain(mouseX - ctrlWin.ox, 0, width  - CW);
     ctrlWin.y = constrain(mouseY - ctrlWin.oy, 0, height - ch);
   }
+  if (vizWin.drag) {
+    vizWin.x = constrain(mouseX - vizWin.ox, 0, width  - VW);
+    vizWin.y = constrain(mouseY - vizWin.oy, 0, height - VH);
+  }
   if (ctrlWin.knob) {
     let k = ctrlWin.knob;
     let delta = (k.startY - mouseY) / 120;
@@ -386,6 +626,7 @@ function mouseDragged() {
 function mouseReleased() {
   infoWin.drag = false;
   ctrlWin.drag = false;
+  vizWin.drag = false;
   ctrlWin.knob = null;
   if (fourierPad.drawing) {
     fourierPad.drawing = false;
@@ -739,7 +980,7 @@ const PANELS = [
         for (let pt of fourierPad.points) vertex(pt.x, pt.y);
         endShape();
       } else if (fourierPad.coeffs.length > 0) {
-        let end = drawEpicycles(0, 0, 0, fourierPad.coeffs, limit, fourierPad.time, this.h);
+        let end = drawEpicycles(0, 0, 0, fourierPad.coeffs, limit, fourierPad.time, this.h, pm.gain.value);
         fourierPad.path.unshift(end);
         if (fourierPad.path.length > floor(pm.trail.value)) fourierPad.path.pop();
 
