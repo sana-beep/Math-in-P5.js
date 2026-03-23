@@ -25,10 +25,10 @@ const NICOTINE_COUNT = 60;
 // ── Animation state ──
 let breathPhase = 0;
 
-// ── Zone angles (radians) ──
-const ALCOHOL_ANGLE  = PI * 7 / 6;   // lower-left
-const CANNABIS_ANGLE = PI * 11 / 6;  // lower-right
-const NICOTINE_ANGLE = PI * 3 / 2;   // top
+// ── Zone angles (radians) — use Math.PI since p5's PI isn't ready at load time ──
+const ALCOHOL_ANGLE  = Math.PI * 7 / 6;   // lower-left
+const CANNABIS_ANGLE = Math.PI * 11 / 6;  // lower-right
+const NICOTINE_ANGLE = Math.PI * 3 / 2;   // top
 
 // ─────────────────────────────────────────────
 // SETUP
